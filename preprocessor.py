@@ -1,8 +1,9 @@
 import re
 import pandas as pd
+from datetime import datetime
 
 def preprocess(data):
-    # Updated pattern to handle both 2-digit and 4-digit years
+    # More flexible pattern to catch various date formats
     pattern = r'\d{1,2}/\d{1,2}/\d{2,4},\s\d{1,2}:\d{2}\s-\s'
 
     messages = re.split(pattern, data)[1:]
@@ -10,21 +11,36 @@ def preprocess(data):
 
     df = pd.DataFrame({'user_message': messages, 'message_date': dates})
     
-    # Handle both 2-digit and 4-digit year formats
-    def parse_date(date_str):
-        # Try 4-digit year format first
-        try:
-            return pd.to_datetime(date_str, format='%d/%m/%Y, %H:%M - ')
-        except ValueError:
-            # If that fails, try 2-digit year format
+    # Very flexible date parsing
+    def parse_date_flexible(date_str):
+        # Remove the trailing " - " 
+        clean_date = date_str.strip().rstrip(' -').strip()
+        
+        # Try different formats
+        formats_to_try = [
+            '%d/%m/%Y, %H:%M',  # 4-digit year
+            '%d/%m/%y, %H:%M',  # 2-digit year
+            '%m/%d/%Y, %H:%M',  # US format 4-digit
+            '%m/%d/%y, %H:%M',  # US format 2-digit
+        ]
+        
+        for fmt in formats_to_try:
             try:
-                return pd.to_datetime(date_str, format='%d/%m/%y, %H:%M - ')
+                return datetime.strptime(clean_date, fmt)
             except ValueError:
-                # If both fail, let pandas infer the format
-                return pd.to_datetime(date_str.replace(' - ', ''), dayfirst=True)
+                continue
+        
+        # If all specific formats fail, let pandas try to infer
+        try:
+            return pd.to_datetime(clean_date, dayfirst=True)
+        except:
+            # Last resort - return current time (shouldn't happen with valid WhatsApp exports)
+            print(f"Warning: Could not parse date '{date_str}', using current time")
+            return datetime.now()
     
     # Apply the flexible date parsing
-    df['message_date'] = df['message_date'].apply(parse_date)
+    df['message_date'] = df['message_date'].apply(parse_date_flexible)
+    df['message_date'] = pd.to_datetime(df['message_date'])
 
     df.rename(columns={'message_date': 'date'}, inplace=True)
 
